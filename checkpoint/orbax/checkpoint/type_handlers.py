@@ -773,6 +773,11 @@ def _get_kvstore_for_gcs(ckpt_path: str) -> Dict[str, Any]:
   return {'driver': 'gcs', 'bucket': gcs_bucket, 'path': path_without_bucket}
 
 
+def _get_kvstore_for_grpc(address: str, ckpt_path: str) -> Dict[str, Any]:
+  path_without_prefix = ckpt_path.removeprefix("yt:")
+  return {'driver': 'grpc_kvstore', 'address': address, 'path': path_without_prefix}
+
+
 def _get_metadata(
     arr,
     use_zarr3,
@@ -829,14 +834,21 @@ def get_tensorstore_spec(
   default_driver = serialization._DEFAULT_DRIVER  # pylint: disable=protected-access
   # Normalize path to exclude trailing '/'. In GCS path case, we will need to
   # fix the path prefix to add back the stripped '/'.
-  directory = os.path.normpath(directory).replace('gs:/', 'gs://')
+  directory = os.path.normpath(directory).replace('gs:/', 'gs://').replace('yt:/', 'yt://')
   is_gcs_path = directory.startswith('gs://')
+  is_yt_path = directory.startswith('yt://')
+  grpc_address = None
+  if is_yt_path and "TS_GRPC_ADDRESS" not in os.environ:
+    raise ValueError('yt:// scheme requires TS_GRPC_ADDRESS environment variable to be set.')
+  else:
+    grpc_address = os.environ.get('TS_GRPC_ADDRESS')
+
   spec = {'driver': ZARR_VER3 if use_zarr3 else ZARR_VER2, 'kvstore': {}}
 
   if use_ocdbt:
-    if not is_gcs_path and not os.path.isabs(directory):
+    if not is_gcs_path and not is_yt_path and not os.path.isabs(directory):
       raise ValueError(f'Checkpoint path should be absolute. Got {directory}')
-    base_path = directory if is_gcs_path else f'{default_driver}://{directory}'
+    base_path = directory if is_gcs_path or is_yt_path else f'{default_driver}://{directory}'
     if process_id is not None:
       process_id = str(process_id)
       assert re.fullmatch(_OCDBT_PROCESS_ID_RE, process_id) is not None, (
@@ -846,10 +858,16 @@ def get_tensorstore_spec(
       base_path = os.path.join(
           base_path, f'{_PROCESS_SUBDIR_PREFIX}{process_id}'
       )
-    spec['kvstore'] = {
+    if not is_yt_path:
+      spec['kvstore'] = {
+          'driver': 'ocdbt',
+          'base': base_path,
+      }
+    else:
+      spec['kvstore'] = {
         'driver': 'ocdbt',
-        'base': base_path,
-    }
+        'base': _get_kvstore_for_grpc(grpc_address, base_path),
+      }
     if name is not None:
       spec['kvstore']['path'] = name
     spec.update(
@@ -872,6 +890,8 @@ def get_tensorstore_spec(
       ckpt_path = os.path.join(directory, name)
     if is_gcs_path:
       spec['kvstore'] = _get_kvstore_for_gcs(ckpt_path)
+    elif is_yt_path:
+      spec['kvstore'] = _get_kvstore_for_grpc(grpc_address, ckpt_path)
     else:
       spec['kvstore'] = {'driver': default_driver, 'path': ckpt_path}
 
