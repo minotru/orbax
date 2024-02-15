@@ -883,6 +883,11 @@ def get_tensorstore_spec(
         # References the cache specified in ts.Context.
         'cache_pool': 'cache_pool#ocdbt',
     })
+    
+    TS_OCDBT_SPEC_EXTRA_JSON_ENV = "TS_OCDBT_SPEC_EXTRA_JSON"
+    if os.environ.get(TS_OCDBT_SPEC_EXTRA_JSON_ENV):
+      ts_ocdbt_spec_extra = json.loads(os.environ[TS_OCDBT_SPEC_EXTRA_JSON_ENV])
+      spec['kvstore'].update(ts_ocdbt_spec_extra)
   else:
     if name is None:
       ckpt_path = directory
