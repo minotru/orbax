@@ -778,7 +778,13 @@ def _get_kvstore_for_s3(ckpt_path: str) -> Dict[str, Any]:
     )
   s3_bucket = m.group(1)
   path_without_bucket = m.group(2)
-  return {'driver': 's3', 'bucket': s3_bucket, 'path': path_without_bucket}
+  return {
+    'driver': 's3',
+    'bucket': s3_bucket,
+    'path': path_without_bucket,
+    'endpoint': os.environ.get("AWS_ENDPOINT_URL"),
+    'aws_region': os.environ.get("AWS_REGION"),
+  }
 
 
 def _get_kvstore_for_grpc(address: str, ckpt_path: str) -> Dict[str, Any]:
@@ -846,6 +852,14 @@ def get_tensorstore_spec(
     .replace('gs:/', 'gs://') \
     .replace('yt:/', 'yt://') \
     .replace('s3:/', 's3://')
+    
+  if os.environ.get("TS_S3_MOUNT_TO_BUCKET"):
+    mount_to_bucket: Dict[str, str] = json.loads(os.environ.get("TS_S3_MOUNT_TO_BUCKET"))
+    for mount, bucket in mount_to_bucket.items():
+     if directory.startswith(mount):
+       directory = directory.replace(mount, f's3://{bucket}')
+       break
+
   is_gcs_path = directory.startswith('gs://') 
   is_yt_path = directory.startswith('yt://')
   is_s3_path = directory.startswith('s3://')
