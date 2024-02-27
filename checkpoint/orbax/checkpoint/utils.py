@@ -50,6 +50,7 @@ _PLACEHOLDER_PREFIX = 'PLACEHOLDER://'
 _COMMIT_SUCCESS_FILE = 'commit_success.txt'
 _GCS_PATH_PREFIX = 'gs://'
 _YT_PATH_PREFIX = 'yt://'
+_S3_PATH_PREFIX = 's3://'
 _LOCK_ITEM_NAME = 'LOCKED'
 _LAST_CHECKPOINT_WRITE_TIME = time.time()
 CheckpointDirs = Tuple[str, str]
@@ -452,6 +453,10 @@ def is_gcs_path(path: epath.Path):
 
 def is_yt_path(path: epath.Path):
   return os.fspath(path).startswith(_YT_PATH_PREFIX)
+
+
+def is_s3_path(path: epath.Path):
+  return os.fspath(path).startswith(_S3_PATH_PREFIX)
 
 
 def get_tmp_directory(path: epath.Path) -> epath.Path:
