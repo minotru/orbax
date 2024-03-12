@@ -826,6 +826,12 @@ def _get_metadata(
           chunk_byte_size=chunk_byte_size,
       )
   )
+
+  if (
+    ts_metadata_extra_json := os.environ.get("TS_METADATA_EXTRA_JSON")
+  ) is not None:
+    metadata.update(json.loads(ts_metadata_extra_json))
+
   return metadata
 
 
@@ -920,11 +926,11 @@ def get_tensorstore_spec(
         # References the cache specified in ts.Context.
         'cache_pool': 'cache_pool#ocdbt',
     })
-    
-    TS_OCDBT_SPEC_EXTRA_JSON_ENV = "TS_OCDBT_SPEC_EXTRA_JSON"
-    if os.environ.get(TS_OCDBT_SPEC_EXTRA_JSON_ENV):
-      ts_ocdbt_spec_extra = json.loads(os.environ[TS_OCDBT_SPEC_EXTRA_JSON_ENV])
-      spec['kvstore'].update(ts_ocdbt_spec_extra)
+
+    if (
+      ts_ocdbt_extra_json := os.environ.get("TS_OCDBT_EXTRA_JSON")
+    ) is not None:
+      spec['kvstore'].update(json.loads(ts_ocdbt_extra_json))
   else:
     if name is None:
       ckpt_path = directory
