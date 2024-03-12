@@ -782,9 +782,9 @@ def _get_kvstore_for_s3(ckpt_path: str) -> Dict[str, Any]:
     'driver': 's3',
     'bucket': s3_bucket,
     'path': path_without_bucket,
-    'endpoint': os.environ.get("AWS_ENDPOINT_URL"),
-    'host_header': os.environ.get("AWS_HOST_HEADER"),
-    'aws_region': os.environ.get("AWS_REGION"),
+    'endpoint': os.environ.get("TS_AWS_ENDPOINT_URL"),
+    'host_header': os.environ.get("TS_AWS_HOST_HEADER"),
+    'aws_region': os.environ.get("TS_AWS_REGION"),
   }
 
 
