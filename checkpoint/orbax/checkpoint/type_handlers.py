@@ -1008,6 +1008,12 @@ def _add_write_tspec_ocdbt_options(tspec: Dict[str, Any]) -> Dict[str, Any]:
       # Large value allows a single root node to support faster traversal.
       'max_decoded_node_bytes': 100000000,
   }
+  
+  if (
+    ts_ocdbt_config_extra_json := os.environ.get("TS_OCDBT_CONFIG_EXTRA_JSON")
+  ) is not None:
+    tspec['kvstore']['config'].update(json.loads(ts_ocdbt_config_extra_json))
+
   return tspec
 
 
