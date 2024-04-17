@@ -794,7 +794,7 @@ def _get_kvstore_for_s3(ckpt_path: str) -> Dict[str, Any]:
 
 def _get_kvstore_for_grpc(address: str, ckpt_path: str) -> Dict[str, Any]:
   path_without_prefix = ckpt_path.removeprefix("yt:")
-  return {'driver': 'grpc_kvstore', 'address': address, 'path': path_without_prefix}
+  return {'driver': 'tsgrpc_kvstore', 'address': address, 'path': path_without_prefix}
 
 
 def _get_metadata(
