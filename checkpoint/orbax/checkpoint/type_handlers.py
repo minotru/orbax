@@ -794,7 +794,20 @@ def _get_kvstore_for_s3(ckpt_path: str) -> Dict[str, Any]:
 
 def _get_kvstore_for_grpc(address: str, ckpt_path: str) -> Dict[str, Any]:
   path_without_prefix = ckpt_path.removeprefix("yt:")
-  return {'driver': 'tsgrpc_kvstore', 'address': address, 'path': path_without_prefix}
+
+  tsgrpc_spec = {
+    'driver': 'tsgrpc_kvstore',
+    'address': address,
+    'path': path_without_prefix,
+    'timeout': '1h',
+  }
+  
+  if (
+      tsgrpc_spec_extra := os.environ.get("TS_GRPC_SPEC_EXTRA")
+  ) is not None:
+    tsgrpc_spec.update(json.loads(tsgrpc_spec_extra))    
+  
+  return tsgrpc_spec
 
 
 def _get_metadata(
