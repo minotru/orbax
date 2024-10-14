@@ -128,24 +128,27 @@ class KVStoreSpecStrategy(abc.ABC):
     def supported_for(self, path: str) -> bool: ...
 
     @abc.abstractmethod
-    def get_spec_for_path(self, path: str) -> JsonSpec: ...
+    def get_spec_for_path(self, path: str, use_ocdbt: bool) -> JsonSpec | str: ...
 
 
 class GCSKVStoreSpecStrategy(KVStoreSpecStrategy):
     def supported_for(self, path: str) -> bool:
         return self._preprocess_path(path).startswith("gs://")
 
-    def get_spec_for_path(self, path: str) -> JsonSpec:
+    def get_spec_for_path(self, path: str, use_ocdbt: bool) -> JsonSpec | str:
         path = self._preprocess_path(path)
 
-        m = re.fullmatch(_GCS_PATH_RE, path, re.DOTALL)
-        if m is None:
-            raise ValueError(
-                "The ckpt_path should contain the bucket name and the "
-                f"file path inside the bucket. Got: {path}"
-            )
-        gcs_bucket = m.group(1)
-        path_without_bucket = m.group(2)
+        if use_ocdbt:
+            return path
+        else:
+            m = re.fullmatch(_GCS_PATH_RE, path, re.DOTALL)
+            if m is None:
+                raise ValueError(
+                    "The ckpt_path should contain the bucket name and the "
+                    f"file path inside the bucket. Got: {path}"
+                )
+            gcs_bucket = m.group(1)
+            path_without_bucket = m.group(2)
 
         return {"driver": "gcs", "bucket": gcs_bucket, "path": path_without_bucket}
 
@@ -158,7 +161,9 @@ class DefaultKVStoreSpecStrategy(KVStoreSpecStrategy):
         del path
         return True
 
-    def get_spec_for_path(self, path: str) -> JsonSpec:
+    def get_spec_for_path(self, path: str, use_ocdbt: bool) -> JsonSpec:
+        del use_ocdbt
+
         path = self._preprocess_path(path)
 
         if not os.path.isabs(path):
@@ -263,7 +268,7 @@ def build_kvstore_tspec(
                 ]
             directory = os.path.join(*join_paths)
 
-        base_driver_spec = strategy.get_spec_for_path(directory)
+        base_driver_spec = strategy.get_spec_for_path(directory, use_ocdbt=True)
 
         kv_spec.update(
             {
@@ -301,7 +306,7 @@ def build_kvstore_tspec(
         else:
             path = os.path.join(directory, name)
 
-        kv_spec = strategy.get_spec_for_path(path)
+        kv_spec = strategy.get_spec_for_path(path, use_ocdbt=False)
 
     return kv_spec
 
