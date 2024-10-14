@@ -14,7 +14,9 @@
 
 """TensorStore serialization helper functions."""
 
+import abc
 import dataclasses
+import json
 import math
 import os
 import re
@@ -47,16 +49,67 @@ DType: TypeAlias = jnp.dtype | np.dtype
 ### Building KvStore specs.
 
 
-def _get_kvstore_for_gcs(ckpt_path: str) -> JsonSpec:
-  m = re.fullmatch(_GCS_PATH_RE, ckpt_path, re.DOTALL)
-  if m is None:
-    raise ValueError(
-        'The ckpt_path should contain the bucket name and the '
-        f'file path inside the bucket. Got: {ckpt_path}'
-    )
-  gcs_bucket = m.group(1)
-  path_without_bucket = m.group(2)
-  return {'driver': 'gcs', 'bucket': gcs_bucket, 'path': path_without_bucket}
+class KVStoreSpecStrategy(abc.ABC):
+  @abc.abstractmethod
+  def supported_for(self, path: str) -> bool:
+    ...
+  
+  @abc.abstractmethod
+  def get_spec_for_path(self, path: str, use_ocdbt: bool) -> JsonSpec:
+    ...
+
+
+class GCSKVStoreSpecStrategy(KVStoreSpecStrategy):
+  def supported_for(self, path: str) -> bool:
+    return self._preprocess_path(path).startswith('gs://')
+
+  def get_spec_for_path(self, path: str, use_ocdbt: bool) -> JsonSpec:
+    path = self._preprocess_path(path)
+    
+    if use_ocdbt:
+      return path
+    else:
+      m = re.fullmatch(_GCS_PATH_RE, path, re.DOTALL)
+      if m is None:
+        raise ValueError(
+            'The ckpt_path should contain the bucket name and the '
+            f'file path inside the bucket. Got: {path}'
+        )
+      gcs_bucket = m.group(1)
+      path_without_bucket = m.group(2)
+
+      return {'driver': 'gcs', 'bucket': gcs_bucket, 'path': path_without_bucket}
+
+  def _preprocess_path(self, path: str) -> str:
+    return os.path.normpath(path).replace('gs:/', 'gs://')
+
+
+class DefaultKVStoreSpecStrategy(KVStoreSpecStrategy):
+  def supported_for(self, path: str) -> bool:
+    del path
+    return True
+
+  def get_spec_for_path(self, path: str, use_ocdbt: bool) -> JsonSpec | str:
+    del use_ocdbt
+
+    path = self._preprocess_path(path)
+
+    if not os.path.isabs(path):
+      raise ValueError(f'Checkpoint path should be absolute. Got {path}')
+    
+    return {'driver': DEFAULT_DRIVER, 'path': path} 
+
+  def _preprocess_path(self, path: str) -> str:
+    return os.path.normpath(path)
+
+
+KVSTORE_SPEC_STRATEGIES: list[KVStoreSpecStrategy] = [
+  GCSKVStoreSpecStrategy(),
+  DefaultKVStoreSpecStrategy(),
+]
+
+def register_kvstore_spec_strategy(strategy: KVStoreSpecStrategy):
+  KVSTORE_SPEC_STRATEGIES.insert(0, strategy)
 
 
 def build_kvstore_tspec(
@@ -80,16 +133,19 @@ def build_kvstore_tspec(
   Returns:
     A Tensorstore KvStore spec in dictionary form.
   """
-  default_driver = DEFAULT_DRIVER
-  # Normalize path to exclude trailing '/'. In GCS path case, we will need to
-  # fix the path prefix to add back the stripped '/'.
-  directory = os.path.normpath(directory).replace('gs:/', 'gs://')
-  is_gcs_path = directory.startswith('gs://')
   kv_spec = {}
 
+  strategy: KVStoreSpecStrategy | None = None
+  for this_strategy in KVSTORE_SPEC_STRATEGIES:
+    if this_strategy.supported_for(directory):
+      strategy = this_strategy
+      break
+  if strategy is None:
+    raise ValueError(
+      f"Can't find a strategy to generate kvstore spec for path={directory}"
+    )
+
   if use_ocdbt:
-    if not is_gcs_path and not os.path.isabs(directory):
-      raise ValueError(f'Checkpoint path should be absolute. Got {directory}')
     if process_id is not None:
       process_id = str(process_id)
       if re.fullmatch(_OCDBT_PROCESS_ID_RE, process_id) is None:
@@ -100,11 +156,9 @@ def build_kvstore_tspec(
       directory = os.path.join(
           directory, f'{PROCESS_SUBDIR_PREFIX}{process_id}'
       )
-    base_driver_spec = (
-        directory
-        if is_gcs_path
-        else {'driver': default_driver, 'path': str(directory)}
-    )
+
+    base_driver_spec = strategy.get_spec_for_path(directory, use_ocdbt=True)
+
     kv_spec.update({
         'driver': 'ocdbt',
         'base': base_driver_spec,
@@ -122,15 +176,16 @@ def build_kvstore_tspec(
         # References the cache specified in ts.Context.
         'cache_pool': 'cache_pool#ocdbt',
     })
+ 
+    if (ts_ocdbt_extra_json := os.environ.get("TS_OCDBT_EXTRA_JSON")) is not None:
+      kv_spec.update(json.loads(ts_ocdbt_extra_json))
   else:
     if name is None:
       path = directory
     else:
       path = os.path.join(directory, name)
-    if is_gcs_path:
-      kv_spec = _get_kvstore_for_gcs(path)
-    else:
-      kv_spec = {'driver': default_driver, 'path': path}
+
+    kv_spec = strategy.get_spec_for_path(path, use_ocdbt=False)
 
   return kv_spec
 
@@ -163,6 +218,11 @@ def add_ocdbt_write_options(
   # consistent configuration, since Orbax never writes to the same OCDBT
   # database concurrently from multiple processes.
   kvstore_tspec.update(assume_config=True)
+  
+  if (
+    ts_ocdbt_config_extra_json := os.getenv("TS_OCDBT_CONFIG_EXTRA_JSON")
+  ) is not None:
+    kvstore_tspec['config'].update(json.loads(ts_ocdbt_config_extra_json))
 
 
 ### Building Zarr array metadata.
@@ -210,6 +270,11 @@ def build_zarr_shard_and_chunk_metadata(
             },
         },
     ]
+  
+  if (
+    ts_metadata_extra_json := os.environ.get("TS_METADATA_EXTRA_JSON")
+  ) is not None:
+    metadata.update(json.loads(ts_metadata_extra_json)) 
 
   return metadata
 
