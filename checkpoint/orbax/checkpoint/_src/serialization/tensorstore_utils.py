@@ -14,6 +14,7 @@
 
 """TensorStore serialization helper functions."""
 
+import abc
 import base64
 import copy
 import json
@@ -122,16 +123,61 @@ def get_ts_context(
 ### Building KvStore specs.
 
 
-def _get_kvstore_for_gcs(ckpt_path: str) -> JsonSpec:
-    m = re.fullmatch(_GCS_PATH_RE, ckpt_path, re.DOTALL)
-    if m is None:
-        raise ValueError(
-            "The ckpt_path should contain the bucket name and the "
-            f"file path inside the bucket. Got: {ckpt_path}"
-        )
-    gcs_bucket = m.group(1)
-    path_without_bucket = m.group(2)
-    return {"driver": "gcs", "bucket": gcs_bucket, "path": path_without_bucket}
+class KVStoreSpecStrategy(abc.ABC):
+    @abc.abstractmethod
+    def supported_for(self, path: str) -> bool: ...
+
+    @abc.abstractmethod
+    def get_spec_for_path(self, path: str) -> JsonSpec: ...
+
+
+class GCSKVStoreSpecStrategy(KVStoreSpecStrategy):
+    def supported_for(self, path: str) -> bool:
+        return self._preprocess_path(path).startswith("gs://")
+
+    def get_spec_for_path(self, path: str) -> JsonSpec:
+        path = self._preprocess_path(path)
+
+        m = re.fullmatch(_GCS_PATH_RE, path, re.DOTALL)
+        if m is None:
+            raise ValueError(
+                "The ckpt_path should contain the bucket name and the "
+                f"file path inside the bucket. Got: {path}"
+            )
+        gcs_bucket = m.group(1)
+        path_without_bucket = m.group(2)
+
+        return {"driver": "gcs", "bucket": gcs_bucket, "path": path_without_bucket}
+
+    def _preprocess_path(self, path: str) -> str:
+        return os.path.normpath(path).replace("gs:/", "gs://")
+
+
+class DefaultKVStoreSpecStrategy(KVStoreSpecStrategy):
+    def supported_for(self, path: str) -> bool:
+        del path
+        return True
+
+    def get_spec_for_path(self, path: str) -> JsonSpec:
+        path = self._preprocess_path(path)
+
+        if not os.path.isabs(path):
+            raise ValueError(f"Checkpoint path should be absolute. Got {path}")
+
+        return {"driver": DEFAULT_DRIVER, "path": path}
+
+    def _preprocess_path(self, path: str) -> str:
+        return os.path.normpath(path)
+
+
+KVSTORE_SPEC_STRATEGIES: list[KVStoreSpecStrategy] = [
+    GCSKVStoreSpecStrategy(),
+    DefaultKVStoreSpecStrategy(),
+]
+
+
+def register_kvstore_spec_strategy(strategy: KVStoreSpecStrategy):
+    KVSTORE_SPEC_STRATEGIES.insert(0, strategy)
 
 
 def _get_kvstore_for_yt(ckpt_path: str):
@@ -187,17 +233,19 @@ def build_kvstore_tspec(
     # Normalize path to exclude trailing '/'. In GCS path case, we will need to
     # fix the path prefix to add back the stripped '/'.
 
-    directory = (
-        os.path.normpath(directory).replace("gs:/", "gs://").replace("yt:/", "yt://")
-    )
-    is_gcs_path = directory.startswith("gs://")
-    is_yt_path = directory.startswith("yt://")
-    is_special_path = is_gcs_path or is_yt_path
     kv_spec = {}
 
+    strategy: KVStoreSpecStrategy | None = None
+    for this_strategy in KVSTORE_SPEC_STRATEGIES:
+        if this_strategy.supported_for(directory):
+            strategy = this_strategy
+            break
+    if strategy is None:
+        raise ValueError(
+            f"Can't find a strategy to generate kvstore spec for path={directory}"
+        )
+
     if use_ocdbt:
-        if not is_special_path and not os.path.isabs(directory):
-            raise ValueError(f"Checkpoint path should be absolute. Got {directory}")
         if process_id is not None:
             process_id = str(process_id)
             if re.fullmatch(_OCDBT_PROCESS_ID_RE, process_id) is None:
@@ -215,12 +263,7 @@ def build_kvstore_tspec(
                 ]
             directory = os.path.join(*join_paths)
 
-        if is_gcs_path:
-            base_driver_spec = directory
-        elif is_yt_path:
-            base_driver_spec = _get_kvstore_for_yt(directory)
-        else:
-            base_driver_spec = _get_default_kvstore(str(directory))
+        base_driver_spec = strategy.get_spec_for_path(directory)
 
         kv_spec.update(
             {
@@ -258,12 +301,7 @@ def build_kvstore_tspec(
         else:
             path = os.path.join(directory, name)
 
-        if is_gcs_path:
-            kv_spec = _get_kvstore_for_gcs(path)
-        elif is_yt_path:
-            kv_spec = _get_kvstore_for_yt(path)
-        else:
-            kv_spec = _get_default_kvstore(path)
+        kv_spec = strategy.get_spec_for_path(path)
 
     return kv_spec
 
