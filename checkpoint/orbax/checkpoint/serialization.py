@@ -33,6 +33,11 @@ import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import multihost
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
+from orbax.checkpoint._src.serialization.tensorstore_utils import (  # noqa: F401
+  KVStoreSpecStrategy,
+  JsonSpec,
+  register_kvstore_spec_strategy,
+)
 import tensorstore as ts
 
 
