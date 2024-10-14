@@ -144,12 +144,17 @@ def _get_kvstore_for_yt(ckpt_path: str):
 
     path_without_prefix = ckpt_path.removeprefix("yt:")
 
-    return {
+    spec = {
         "driver": "tsgrpc_kvstore",
         "address": grpc_address,
         "path": path_without_prefix,
         "timeout": "1h",
     }
+
+    if (tsgrpc_spec_extra := os.environ.get("TS_GRPC_SPEC_EXTRA")) is not None:
+        spec.update(json.loads(tsgrpc_spec_extra))
+
+    return spec
 
 
 def _get_default_kvstore(ckpt_path: str):
@@ -244,6 +249,9 @@ def build_kvstore_tspec(
                     "experimental_read_coalescing_interval": "1ms",
                 }
             )
+
+        if (ts_ocdbt_extra_json := os.environ.get("TS_OCDBT_EXTRA_JSON")) is not None:
+            kv_spec.update(json.loads(ts_ocdbt_extra_json))
     else:
         if name is None:
             path = directory
@@ -305,6 +313,11 @@ def add_ocdbt_write_options(
     # consistent configuration, since Orbax never writes to the same OCDBT
     # database concurrently from multiple processes.
     kvstore_tspec.update(assume_config=True)
+
+    if (
+        ts_ocdbt_config_extra_json := os.getenv("TS_OCDBT_CONFIG_EXTRA_JSON")
+    ) is not None:
+        kvstore_tspec["config"].update(json.loads(ts_ocdbt_config_extra_json))
 
 
 async def open_kv_store(
@@ -369,6 +382,9 @@ def build_zarr_shard_and_chunk_metadata(
         if use_compression:
             # Remove zstd codec if not using compression.
             metadata["codecs"][0]["configuration"]["codecs"].append({"name": "zstd"})
+
+    if (ts_metadata_extra_json := os.environ.get("TS_METADATA_EXTRA_JSON")) is not None:
+        metadata.update(json.loads(ts_metadata_extra_json))
 
     return metadata
 
