@@ -156,6 +156,40 @@ class GCSKVStoreSpecStrategy(KVStoreSpecStrategy):
         return os.path.normpath(path).replace("gs:/", "gs://")
 
 
+class YTKVStoreSpecStrategy(KVStoreSpecStrategy):
+    def supported_for(self, path: str) -> bool:
+        return self._preprocess_path(path).startswith("yt://")
+
+    def get_spec_for_path(self, path: str, use_ocdbt: bool) -> JsonSpec:
+        del use_ocdbt
+
+        path = self._preprocess_path(path)
+
+        if "TS_GRPC_ADDRESS" not in os.environ:
+            raise ValueError(
+                "yt:// scheme requires TS_GRPC_ADDRESS environment variable to be set."
+            )
+
+        grpc_address = os.environ.get("TS_GRPC_ADDRESS")
+
+        path_without_prefix = path.removeprefix("yt:")
+
+        spec = {
+            "driver": "tsgrpc_kvstore",
+            "address": grpc_address,
+            "path": path_without_prefix,
+            "timeout": "1h",
+        }
+
+        if (tsgrpc_spec_extra := os.environ.get("TS_GRPC_SPEC_EXTRA")) is not None:
+            spec.update(json.loads(tsgrpc_spec_extra))
+
+        return spec
+
+    def _preprocess_path(self, path: str) -> str:
+        return os.path.normpath(path).replace("yt:/", "yt://")
+
+
 class DefaultKVStoreSpecStrategy(KVStoreSpecStrategy):
     def supported_for(self, path: str) -> bool:
         del path
@@ -177,6 +211,7 @@ class DefaultKVStoreSpecStrategy(KVStoreSpecStrategy):
 
 KVSTORE_SPEC_STRATEGIES: list[KVStoreSpecStrategy] = [
     GCSKVStoreSpecStrategy(),
+    YTKVStoreSpecStrategy(),
     DefaultKVStoreSpecStrategy(),
 ]
 
