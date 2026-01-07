@@ -35,7 +35,7 @@ async def mkdir(
     path: epath.Path,
     parents: bool = False,
     exist_ok: bool = False,
-    mode: int | None = None,
+    mode: int = 0o777,
 ):
   """Creates a directory asynchronously."""
 
