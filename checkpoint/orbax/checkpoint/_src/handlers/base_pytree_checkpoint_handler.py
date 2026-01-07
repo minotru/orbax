@@ -435,6 +435,7 @@ class BasePyTreeCheckpointHandler(
       use_compression: bool | None = True,
       use_zarr3: Optional[bool] = None,
       ocdbt_target_data_file_size: Optional[int] = None,
+      enable_pinned_host_transfer: Optional[bool] = None,
       byte_limiter: Optional[limits.ByteLimiter] = None,
       device_host_byte_limiter: Optional[limits.ByteLimiter] = None,
       raise_array_data_missing_error: bool = True,
@@ -452,6 +453,7 @@ class BasePyTreeCheckpointHandler(
       use_zarr3: Whether to use zarr3.
       ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
         OCDBT data file.
+      enable_pinned_host_transfer: See ParamInfo docs.
       byte_limiter: ByteLimiter object.
       device_host_byte_limiter: ByteLimiter object for device-to-host transfer.
       raise_array_data_missing_error: See documentation in ParamInfo.
@@ -463,6 +465,8 @@ class BasePyTreeCheckpointHandler(
       use_zarr3 = self._use_zarr3
     names = self.get_param_names(item)
     ts_context = ts_utils.get_ts_context(use_ocdbt=use_ocdbt)
+    if enable_pinned_host_transfer is None:
+      enable_pinned_host_transfer = self._enable_pinned_host_transfer
 
     def _param_info(keypath, name, value):
       if isinstance(value, tree_metadata.ValueMetadataEntry):
@@ -480,7 +484,7 @@ class BasePyTreeCheckpointHandler(
           is_ocdbt_checkpoint=use_ocdbt,
           use_compression=use_compression,
           use_zarr3=use_zarr3,
-          enable_pinned_host_transfer=self._enable_pinned_host_transfer,
+          enable_pinned_host_transfer=enable_pinned_host_transfer,
           ocdbt_target_data_file_size=ocdbt_target_data_file_size,
           byte_limiter=byte_limiter,
           device_host_byte_limiter=device_host_byte_limiter,
@@ -623,6 +627,7 @@ class BasePyTreeCheckpointHandler(
       raise ValueError('Found empty item.')
     save_args = args.save_args
     ocdbt_target_data_file_size = args.ocdbt_target_data_file_size
+    enable_pinned_host_transfer = args.enable_pinned_host_transfer
     custom_metadata = args.custom_metadata
 
     save_args = _fill_missing_save_or_restore_args(item, save_args, mode='save')
@@ -635,6 +640,7 @@ class BasePyTreeCheckpointHandler(
         directory,
         use_ocdbt=self._use_ocdbt,
         ocdbt_target_data_file_size=ocdbt_target_data_file_size,
+        enable_pinned_host_transfer=enable_pinned_host_transfer,
         byte_limiter=byte_limiter,
         device_host_byte_limiter=device_host_byte_limiter,
         use_compression=self._use_compression,
@@ -1388,6 +1394,7 @@ class BasePyTreeSaveArgs(CheckpointArgs):
   item: PyTree
   save_args: Optional[PyTree] = None
   ocdbt_target_data_file_size: Optional[int] = None
+  enable_pinned_host_transfer: Optional[bool] = None
   custom_metadata: tree_types.JsonType | None = None
 
 
