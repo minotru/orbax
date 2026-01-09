@@ -26,22 +26,24 @@ Should be implemented as::
 
 import asyncio
 import os
-from typing import Any, Iterator
-from etils import epath
+from typing import Any, Iterator, Optional
 
+from etils import epath
 
 
 async def mkdir(
     path: epath.Path,
     parents: bool = False,
     exist_ok: bool = False,
-    mode: int = 0o777,
+    mode: Optional[int] = None,
 ):
   """Creates a directory asynchronously."""
+  # Current versions of ytapth and etils do not support mode `None`
+  mode_kwargs = {} if mode is None else {'mode': mode}
 
   def _mkdir_sync(**thread_kwargs):
     """Synchronously creates a directory."""
-    path.mkdir(parents=parents, exist_ok=exist_ok, mode=mode)
+    path.mkdir(parents=parents, exist_ok=exist_ok, **mode_kwargs)
 
   thread_kwargs = {}
   return await asyncio.to_thread(_mkdir_sync, **thread_kwargs)
